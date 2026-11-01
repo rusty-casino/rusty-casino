@@ -1,13 +1,12 @@
 [package]
-name = "server"
+name = "rusty-casino"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
-easy-api = "0.1.5"
+easy-api = { version = "0.1.11-rc", features = ["static"] }
 rand = "0.10.3"
 rusqlite = { version = "0.41.0", features = ["bundled"] }
-argon2 = "0.5"
+argon2 = { version = "0.5", features = ["std"] }
 password-hash = { version = "0.5", features = ["rand_core"] }
-rand_core = { version = "0.6", features = ["getrandom"] }

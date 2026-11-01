@@ -8,6 +8,8 @@ mod crypto;
 
 mod games;
 
+const ADDR: &str = "0.0.0.0:80";
+
 fn pong() -> easy_api::EasyResult {
     println!("Pong");
     Ok(())
@@ -32,12 +34,17 @@ fn bet_wrapper(db: &mut Database, recived: String, func: impl Fn() -> String + S
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    easy_api::set_verbose(true);
+    // Serve Client Directory
+    easy_api::static_files::serve_static("/", "client");
+
+
     let mut db = Arc::new(Mutex::new(Database::new("casino.db")?));
 
-    easy_api::add_tap_api("/ping", pong);
+    easy_api::add_tap_api("/api/ping", pong);
 
     let cdb = Arc::clone(&mut db);
-    easy_api::add_grab_give_api("/bet/coinflip", move |recived| {
+    easy_api::add_grab_give_api("/api/bet/coinflip", move |recived| {
         let out = bet_wrapper(&mut cdb.lock().unwrap(), recived, games::coin_flip::play_coin_flip);
         if out.is_err() {
             eprintln!("Bet Failed! {}", out.unwrap_err());
@@ -47,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let c2db = Arc::clone(&mut db);
-    easy_api::add_grab_give_api("/login", move |recived| {
+    easy_api::add_grab_give_api("/api/login", move |recived| {
         let srecv: Vec<&str> = recived.split(' ').collect();
         let (username, password): (String, String) = (srecv[0].to_owned(), srecv[1].to_owned());
 
@@ -60,7 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let c3db = Arc::clone(&mut db);
-    easy_api::add_grab_give_api("/signup", move |recived| {
+    easy_api::add_grab_give_api("/api/signup", move |recived| {
         let srecv: Vec<&str> = recived.split(' ').collect();
         let (username, password): (String, String) = (srecv[0].to_owned(), srecv[1].to_owned());
 
@@ -69,10 +76,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Signup Failed! {}", out.unwrap_err());
             return Err(500); 
         }
-        Ok(out.unwrap())
+         Ok(out.unwrap())
     });
 
-    easy_api::start();
+    easy_api::start_on(ADDR);
     loop {
         easy_api::park();
     }
