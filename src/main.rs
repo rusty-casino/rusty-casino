@@ -1,5 +1,7 @@
 use easy_api;
 use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use serde_json;
 
 mod database;
 use database::Database;
@@ -15,21 +17,32 @@ fn pong() -> easy_api::EasyResult {
     Ok(())
 }
 
-fn bet_wrapper(db: &mut Database, recived: String, func: impl Fn() -> String + Send + Sync + 'static) -> Result<bool, Box<dyn std::error::Error>> {
-    let srecv: Vec<&str> = recived.split(' ').collect();
 
-    let (player_tok, market_id, wager): (String, i64, i64) = (
-        srecv[0].to_owned(),
-        srecv[1].parse().unwrap(),
-        srecv[2].parse().unwrap(),
-    );
+fn bet_wrapper(db: &mut Database, received: String, game_functions: &HashMap<String, games::GameFunction>) -> Result<bool, Box<dyn std::error::Error>> {
+    let mut parts = received.split_whitespace();
+
+    let player_tok = parts.next().ok_or("Missing token")?.to_owned();
+    let market_id: i64 = parts.next().ok_or("Missing market ID")?.parse()?;
+    let wager: i64 = parts.next().ok_or("Missing wager")?.parse()?;
+
+    if parts.next().is_some() {
+        return Err("Too many arguments".into());
+    }
 
     let player_id = db.get_player_id_token(player_tok)?;
 
+    let game_type = db.get_game_type_for_market(market_id)?;
+    let game_func = game_functions
+        .get(&game_type)
+        .ok_or("Game implementation not found")?;
+
     let bet_id = db.place_bet(player_id, market_id, wager)?;
+
     let round_id = db.get_round_id(bet_id)?;
-    db.play_game(func, round_id)?;
+    db.play_game(*game_func, round_id)?;
+
     let win = db.payout_bet(bet_id)?;
+
     Ok(win)
 }
 
@@ -38,19 +51,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Serve Client Directory
     easy_api::static_files::serve_static("/", "client");
 
+    let game_functions = games::init();
 
     let mut db = Arc::new(Mutex::new(Database::new("casino.db")?));
 
     easy_api::add_tap_api("/api/ping", pong);
 
     let cdb = Arc::clone(&mut db);
-    easy_api::add_grab_give_api("/api/bet/coinflip", move |recived| {
-        let out = bet_wrapper(&mut cdb.lock().unwrap(), recived, games::coin_flip::play_coin_flip);
-        if out.is_err() {
-            eprintln!("Bet Failed! {}", out.unwrap_err());
-            return Err(500); 
+    easy_api::add_grab_give_api("/api/bet", move |received| {
+        let result = bet_wrapper(
+            &mut cdb.lock().unwrap(),
+            received,
+            &game_functions
+        );
+
+        match result {
+            Ok(true) => Ok("win".to_string()),
+            Ok(false) => Ok("loss".to_string()),
+            Err(e) => {
+                eprintln!("Bet Failed! {}", e);
+                Err(500)
+            }
         }
-        if out.unwrap() {return Ok("win".to_string());} else {return Ok("loss".to_string());}
     });
 
     let c2db = Arc::clone(&mut db);
@@ -63,7 +85,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Login Failed! {}", out.unwrap_err());
             return Err(500); 
         }
-        Ok(out.unwrap())
+        let out = out.unwrap();
+        if out == "x" {
+            return Err(401);
+        }
+        Ok(out)
     });
 
     let c3db = Arc::clone(&mut db);
@@ -77,6 +103,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(500); 
         }
          Ok(out.unwrap())
+    });
+
+    let c4db = Arc::clone(&mut db);
+    easy_api::add_tap_give_api("/api/games", move || {
+        let games = c4db.lock().unwrap().get_games();
+        if games.is_err() {
+            eprintln!("Get Games Failed! {}", games.unwrap_err());
+            return Err(500);
+        }
+
+        let json = serde_json::to_string(&games.unwrap());
+        if json.is_err() {
+            eprintln!("Get Games Failed! {}", json.unwrap_err());
+            return Err(500);
+        }
+        Ok(json.unwrap())
     });
 
     easy_api::start_on(ADDR);

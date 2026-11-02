@@ -1,4 +1,22 @@
 use rusqlite::{Connection, Result, Transaction, params};
+use serde::Serialize;
+
+#[derive(Serialize)]
+#[derive(Debug)]
+pub struct Game {
+    pub id: i64,
+    pub name: String,
+    pub game_type: String,
+    pub markets: Vec<Market>,
+}
+
+#[derive(Serialize)]
+#[derive(Debug)]
+pub struct Market {
+    pub id: i64,
+    pub selection: String,
+    pub odds: f64,
+}
 
 pub struct Database {
     connection: Connection,
@@ -243,5 +261,79 @@ impl Database {
     pub fn new_player(&mut self, username: String, password_hash: String, latest_token: String) -> Result<i64, Box<dyn std::error::Error>> {
         self.connection.execute("INSERT INTO players (username, pwd_hash, latest_tok, lt_creation) VALUES (?1, ?2, ?3, CURRENT_TIMESTAMP)", params![username, password_hash, latest_token])?;
         Ok(self.connection.last_insert_rowid())
+    }
+
+    pub fn get_games(&self) -> Result<Vec<Game>> {
+        let mut stmt = self.connection.prepare(
+            "
+            SELECT
+                g.id,
+                g.name,
+                g.game_type,
+                m.id,
+                m.selection,
+                m.odds
+            FROM games g
+            LEFT JOIN markets m ON m.game_id = g.id
+            WHERE g.status = 'active'
+            ORDER BY g.name, m.selection
+            "
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<i64>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<f64>>(5)?,
+            ))
+        })?;
+
+        let mut games: Vec<Game> = Vec::new();
+
+        for row in rows {
+            let (id, name, game_type, market_id, selection, odds) = row?;
+
+            let index = match games.iter().position(|g| g.id == id) {
+                Some(index) => index,
+                None => {
+                    games.push(Game {
+                        id,
+                        name,
+                        game_type,
+                        markets: Vec::new(),
+                    });
+                    games.len() - 1
+                }
+            };
+
+            if let (Some(id), Some(selection), Some(odds)) =
+                (market_id, selection, odds)
+            {
+                games[index].markets.push(Market {
+                    id,
+                    selection,
+                    odds,
+                });
+            }
+        }
+
+        Ok(games)
+    }
+
+    pub fn get_game_type_for_market(&mut self, market_id: i64) -> Result<String, Box<dyn std::error::Error>> {
+        Ok(self.connection.query_row(
+            "
+            SELECT g.game_type
+            FROM markets m
+            JOIN games g ON g.id = m.game_id
+            WHERE m.id = ?1
+            AND g.status = 'active'
+            ",
+            params![market_id],
+            |row| row.get(0)
+        )?)
     }
 }

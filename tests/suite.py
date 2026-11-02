@@ -1,6 +1,6 @@
 import requests
 
-LOCATION: str = "http://127.0.0.1:3000/"
+LOCATION: str = "http://127.0.0.1:80/"
 
 def get(uri: str):
     response = requests.get(LOCATION+uri)

@@ -1,6 +1,53 @@
 <!DOCTYPE html>
 <html
     <body>
-        
+        <h1>Login</h1>
+        <br>
+        <form id="login" action="javascript:void(0);">
+            <label for="username">Username:</label>
+            <input type="text" id="username" name="username">
+            <br>
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password">
+            <br>
+            <input type="submit">
+            <br>
+            <p id="helptext" style="background-color: rgb(255 0 0);"></p>
+        </form>
+
+        <script>
+            document.getElementById("loginForm").addEventListener("submit", async (e) => {
+                e.preventDefault();
+
+                const username = document.getElementById("username").value;
+                const password = document.getElementById("password").value;
+
+                const response = await fetch("/api/login", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "text/plain"
+                    },
+                    body: `${username} ${password}`
+                });
+
+                switch (response.status) {
+                    case 200:
+                        sessionStorage.setItem("login_token", await response.text);
+                        location.href = "/";
+                        break;
+                    
+                    case 401:
+                        document.getElementById("helptext").innerText = "Incorrect Username/Password";
+
+                    case 500:
+                        document.getElementById("helptext").innerText = "Backend Error - Please Try Again Later";
+
+                    default:
+                        break;
+                }
+
+                
+            });
+        </script>
     </body>
 </html
